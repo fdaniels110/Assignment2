@@ -71,19 +71,19 @@ int main(int argc, char **argv){
 	if(status == STAT_SUCCESS && response->errstat == SNMP_ERR_NOERROR){
 
 		vars = response->variables;
-		/*
+		
 		if(vars->type == ASN_INTEGER){
-			//long value = *(vars->val.integer);
-			char *str = (char *)malloc(1 + vars->val_len);
-			memcpy(str, vars->val.string, vars->val_len);
-			str[vars->val_len] = '\0';
-			printf("You have %s interfaces.\n", str);
-			free(str);
+			long value = *(vars->val.integer);
+			//char *str = (char *)malloc(1 + vars->val_len);
+			//memcpy(str, vars->val.string, vars->val_len);
+			//str[vars->val_len] = '\0';
+			printf("You have %d interfaces.\n", value);
+			//free(str);
 		}else{
 			printf("Accessed an incorrect MIB");
 		}
-		*/
-		print_variable(vars->name, vars->name_length, vars);
+		
+		//print_variable(vars->name, vars->name_length, vars);
 
 	}else{
 		if(status == STAT_SUCCESS){
