@@ -1,6 +1,10 @@
 /*
 	Program to validate IPv4 address strings
-	In the case that the IP address is not valid will retrun an array of possible addresses
+	Input: char *ipaddresses
+		String containing possible IP address or hostname
+	Output: int
+		0 : not valid hostname nor valid IP address
+		1 : valid IP or hostname
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,8 +22,7 @@
 
 int validateIP(char *ipaddress){
 	if( strlen(ipaddress) < 4 || strlen(ipaddress) > 18){
-		printf("%s is not a valid IP address and cannot be parsed out. \n", ipaddress);
-		return 1;
+		return validate_host_name(ipaddress);
 	}
 
 	int currentIndex = 0;
@@ -58,14 +61,13 @@ int validateIP(char *ipaddress){
 			validIp = 1;
 		}
  
-		if(strlen(ipaddress) == currentIndex && strlen(ipaddress) == 15){ 
-			validIp = 1;	
+		if(strlen(ipaddress) == currentIndex && strlen(ipaddress) == 15){ 	
 			printf("%s is a valid IP \n", ipaddress);
-			return 0;
+			return 1;
 		}
 	}while(!validIp);
 
-	return 1;
+	return 0;
 
 }
 
@@ -79,7 +81,7 @@ int validate_host_name(char *hostname){
 	if(host == NULL){
 
 		perror("Can't open hostname file. Can't resolve hostnames.\n");
-		return -1;
+		return 0;
 
 	}else{
 		while(fgets(buff, 100, host) != NULL){
