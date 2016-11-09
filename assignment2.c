@@ -1,41 +1,51 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <errno.h>
 #include <net-snmp/net-snmp-config.h>
 #include <net-snmp/net-snmp-includes.h>
 #include "ipcheck.h"
+#include "io_controller.h"
 
 #undef SNMP_VERSION_3
 
+#define MAX_AGENT_LEN 30
+#define MAX_COMMUNITY_LEN 100
 
+struct session_info {
+		char *agent;
+		int port_num;
+		char *community;
+};
+
+void get_user_data(struct session_info *);
 
 int main(int argc, char **argv){
 	
-	
+	struct session_info agent;
 
-	char agent_addr[30];
+	get_user_data(&agent);
 
-	if(retreive_agent_address(&agent_addr) == 0){
-		exit(1);
+	netsnmp_session *ss;
+
+	netsnmp_session session;
+
+	init_snmp("snmpapp");
+
+	snmp_sess_init(&session);
+	session.peername = agent.agent;
+	session.remote_port = agent.port_num;
+	session.version = SNMP_VERSION_2c;
+	session.community = agent.community;
+	session.community_len = strlen(session.community);
+
+	ss = snmp_open(&session);
+
+	if(!ss){
+		snmp_perror("ack");
+		snmp_log(LOG_ERR, "Connection error");
+		exit(2);
 	}
 
-	int port_num;
-
-	port_num = retreive_agent_port();
-	
-	if(port_num < 1){
-		printf("An error occured retrieving port number. \n");
-		exit(1);
-	}
-
-	char community[100];
-	
-	retrieve_agent_community(&community);
-
-
-
-	netsnmp_session session, *ss;
 	netsnmp_pdu *pdu;
 	netsnmp_pdu *response;
 
@@ -44,22 +54,6 @@ int main(int argc, char **argv){
 
 	netsnmp_variable_list *vars;
 	int status;
-	int count = 1;
-
-	init_snmp("snmpapp");
-
-	snmp_sess_init(&session);
-	session.peername = agent_addr;
-	session.remote_port = port_num;
-	session.version = SNMP_VERSION_1;
-	session.community = community;
-	session.community_len = strlen(session.community);
-
-	ss = snmp_open(&session);
-
-	if(!ss){
-
-	}
 
 	pdu = snmp_pdu_create(SNMP_MSG_GET);
 	anOID_len = MAX_OID_LEN;
@@ -72,19 +66,23 @@ int main(int argc, char **argv){
 
 	status = snmp_synch_response(ss, pdu, &response);
 
+	long value;
+
 	if(status == STAT_SUCCESS && response->errstat == SNMP_ERR_NOERROR){
 
 		vars = response->variables;
 		
 		if(vars->type == ASN_INTEGER){
-			long value = *(vars->val.integer);
+			
+			value = *(vars->val.integer);
 			//char *str = (char *)malloc(1 + vars->val_len);
 			//memcpy(str, vars->val.string, vars->val_len);
 			//str[vars->val_len] = '\0';
-			printf("You have %d interfaces.\n", value);
+			printf("You have %d interfaces:\n", value);
+			printf("-----------------------\n");
 			//free(str);
 		}else{
-			printf("Accessed an incorrect MIB");
+			printf("Wrong datatype for MIB\n");
 		}
 		
 		//print_variable(vars->name, vars->name_length, vars);
@@ -95,7 +93,7 @@ int main(int argc, char **argv){
 					snmp_errstring(response->errstat));
 		}else if(status == STAT_TIMEOUT){
 			fprintf(stderr, "Timeout: No response from %s", 
-					session.peername);
+					agent.agent);
 		}else{
 			snmp_sess_perror("assignment2", ss);
 		}
@@ -104,85 +102,126 @@ int main(int argc, char **argv){
 	if(response){
 		snmp_free_pdu(response);
 	}
+
+	pdu = snmp_pdu_create(SNMP_MSG_GETBULK);
+
+	//oid ifIndex[MAX_OID_LEN], ifDescr[MAX_OID_LEN];
+	size_t ifIndex_len, ifDescr_len;
+
+	anOID_len = MAX_AGENT_LEN;
+	
+	pdu->non_repeaters = 0;
+	pdu->max_repetitions = value;
+	oid ifIndex[] = {1,3,6,1,2,1,2,2,1,1};
+	
+	oid ifDescr[] = {1,3,6,1,2,1,2,2,1,2};
+		
+	snmp_add_null_var(pdu, ifIndex, OID_LENGTH(ifIndex));
+	snmp_add_null_var(pdu, ifDescr, OID_LENGTH(ifDescr));
+
+	status = snmp_synch_response(ss, pdu, &response);
+
+	if(status == STAT_SUCCESS && response->errstat == SNMP_ERR_NOERROR){
+		//char var1[30], var2[30];
+
+		for(vars = response->variables; vars; vars = vars->next_variable){
+			//print_variable(vars->name, vars->name_length, vars);
+			if(vars->type == ASN_INTEGER){
+					printf("Interface %d : is named ", *(vars->val.integer));
+					//netsnmp_oid2str(var1, 30, vars->val.objid);
+				}
+			
+			else if(vars->type == ASN_OCTET_STR){
+					char *descr = (char *) malloc(1 + vars->val_len);
+					memcpy(descr, vars->val.string, vars->val_len);
+					descr[vars->val_len] = '\0';
+					printf("%s.\n", descr);
+					free(descr);
+					//netsnmp_oid2str(var2, 30, vars->val.objid);
+			}
+						
+		}
+		
+	}else{
+		if(status == STAT_SUCCESS){
+			fprintf(stderr, "Error in packet\nReason: %s\n",
+				snmp_errstring(response->errstat));
+		}else if(status == STAT_TIMEOUT){
+			fprintf(stderr, "Timeout: No response from %s\n",
+				session.peername );
+		}else{
+			snmp_sess_perror("assignment2", ss);
+		}
+	}
+
+	if(response){
+		snmp_free_pdu(response);
+	}
+
+	pdu = snmp_pdu_create(SNMP_MSG_GETNEXT);
+	oid ipRouteDest[] = {1,3,6,1,2,1,4,21,1,1,0,0,0,0};
+	size_t ipRouteDest_len = MAX_AGENT_LEN;
+
+	snmp_add_null_var(pdu, ipRouteDest, OID_LENGTH(ipRouteDest));
+
+	status = snmp_synch_response(ss, pdu, &response);
+
+	if(status == STAT_SUCCESS && response->errstat == SNMP_ERR_NOERROR){
+
+		char ipRouteDestStr[30];
+
+		vars = response->variables;
+		printf("datatype String? %d\n", (vars->type == ASN_IPADDRESS));
+		printf("length: %d\n", vars->val_len);
+		unsigned long obj = *(vars->val.objid);
+		printf("OID %d\n", obj);
+		unsigned char *ipaddress = (unsigned char *) malloc(1 + vars->val_len);
+		memcpy(ipaddress, vars->val.string, vars->val_len);
+		int ip_array[4];
+		int i;
+		printf("Address: ");
+		for(i = 0; i < 4; i++){
+			ip_array[i] = ipaddress[i];
+			printf("%d,",ip_array[i]);
+		}
+		printf("\n");
+		//printf("Address: %d \n", ipaddress[0]);
+		free(ipaddress);
+	}else if(status == STAT_SUCCESS){
+		fprintf(stderr, "Error in packet\nReason: %s\n",
+				snmp_errstring(response->errstat));
+	}else if (status == STAT_TIMEOUT){
+		fprintf(stderr, "Timeout: No response from %s\n",
+				session.peername);
+	}else{
+		snmp_sess_perror("assignment2", ss);
+	}
+
+	if(response){
+		snmp_free_pdu(response);
+	}
+
 	snmp_close(ss);
 }
 
+void get_user_data(struct session_info *agent){
 
-int retreive_agent_address(char *agent_addr){
-	int validIP = 0;
-	int tries = 0;
-
-	do{
-	
-		if(tries > 4){
-			printf("Too many attempts. Could not resolve address. Check code, "
-	 			"check hosts file, or check IP and reattempt.\n");
-			return 0;
-		}
-
-		printf("Enter address of agent: \n");
-
-		if(scanf("%s", agent_addr) < 0){
-			printf("Could not accept input.\n");
-			tries++;
-		}else{
-			validIP = validateIP(agent_addr);
-		}
-	 }while(validIP != 0 && tries < 4);
-
-	 if(tries == 4){
-	 	return 0;
-	 }
-	 return 1;
-}
-
-int retreive_agent_port(){
-	char *end;
-	char port_buff[5];
-	int port_num = 0;
-	int tries = 0;
-
-	do{
-		printf("Enter agent port (enter defaults 161):\n");
-
-		if(scanf("%s", port_buff) > 0){
-			if(port_buff[0] == '\n'){
-				port_num = 161;
-			}else{
-				port_num = strtoul(port_buff, &end, 10);
-				if (port_num == 0){
-					printf("Port number %s is invalid. \n", port_buff);
-				}else if(errno == ERANGE){
-					printf("Port number %s is too big. \n", port_buff);
-				}
-			}
-		}else{
-			printf("Could not receive input.\n");
-		}
-		tries++;
-
-	}while(port_num == 0 && tries < 4);
-
-	if(tries == 4){
-		printf("Defaulting to port 161.\n" );
-		return 161;
+	char *agent_addr = (char *) malloc(MAX_AGENT_LEN);
+	if(retreive_agent_address(agent_addr) == 0){
+		exit(1);
 	}
 
-	return port_num;
-}
+	agent->agent = agent_addr;
 
-int retrieve_agent_community(char *community){
+	int port_num;
+	port_num = retreive_agent_port();	
+	if(port_num < 1){
+		printf("An error occured retrieving port number. \n");
+		exit(1);
+	}
+	agent->port_num = port_num;
 
-	int tries = 0;
-	do{
-		printf("Enter community name: \n");
-		if( scanf("%s", community) < 0){
-			printf("Could not accept inputed string. Try again.\n");
-		}else{
-			return 1;
-		}
-		tries++;
-	}while(tries < 4);
-
-	return 0;
+	char *community = (char *) malloc(MAX_COMMUNITY_LEN);	
+	retrieve_agent_community(community);
+	agent->community = community;
 }
