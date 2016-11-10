@@ -39,7 +39,7 @@ int retreive_agent_port(){
 	int tries = 0;
 
 	do{
-		printf("Enter agent port (enter defaults 161):\n");
+		printf("Enter agent port:\n");
 
 		if(scanf("%s", port_buff) > 0){
 			if(port_buff[0] == '\n'){

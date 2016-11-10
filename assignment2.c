@@ -18,6 +18,7 @@ struct session_info {
 };
 
 void get_user_data(struct session_info *);
+void generate_oid(char *, oid *);
 
 int main(int argc, char **argv){
 	
@@ -67,7 +68,7 @@ int main(int argc, char **argv){
 	status = snmp_synch_response(ss, pdu, &response);
 
 	long value;
-
+	//retrieving number of interfaces
 	if(status == STAT_SUCCESS && response->errstat == SNMP_ERR_NOERROR){
 
 		vars = response->variables;
@@ -75,9 +76,6 @@ int main(int argc, char **argv){
 		if(vars->type == ASN_INTEGER){
 			
 			value = *(vars->val.integer);
-			//char *str = (char *)malloc(1 + vars->val_len);
-			//memcpy(str, vars->val.string, vars->val_len);
-			//str[vars->val_len] = '\0';
 			printf("You have %d interfaces:\n", value);
 			printf("-----------------------\n");
 			//free(str);
@@ -103,44 +101,50 @@ int main(int argc, char **argv){
 		snmp_free_pdu(response);
 	}
 
+	//begin retrieving Interfaces and their ips
 	pdu = snmp_pdu_create(SNMP_MSG_GETBULK);
 
-	//oid ifIndex[MAX_OID_LEN], ifDescr[MAX_OID_LEN];
 	size_t ifIndex_len, ifDescr_len;
 
 	anOID_len = MAX_AGENT_LEN;
 	
 	pdu->non_repeaters = 0;
 	pdu->max_repetitions = value;
-	oid ifIndex[] = {1,3,6,1,2,1,2,2,1,1};
+	oid ifIndex[] = {1,3,6,1,2,1,4,20,1,2};
 	
-	oid ifDescr[] = {1,3,6,1,2,1,2,2,1,2};
+	oid ip_addr[] = {1,3,6,1,2,1,4,20,1,1};
 		
 	snmp_add_null_var(pdu, ifIndex, OID_LENGTH(ifIndex));
-	snmp_add_null_var(pdu, ifDescr, OID_LENGTH(ifDescr));
+	snmp_add_null_var(pdu, ip_addr, OID_LENGTH(ip_addr));
 
 	status = snmp_synch_response(ss, pdu, &response);
-
+	//sending ifIndex and ipAdEntAddr
 	if(status == STAT_SUCCESS && response->errstat == SNMP_ERR_NOERROR){
 		//char var1[30], var2[30];
 
 		for(vars = response->variables; vars; vars = vars->next_variable){
 			//print_variable(vars->name, vars->name_length, vars);
 			if(vars->type == ASN_INTEGER){
-					printf("Interface %d : is named ", *(vars->val.integer));
+					printf("Interface %d : ", *(vars->val.integer));
 					//netsnmp_oid2str(var1, 30, vars->val.objid);
 				}
 			
-			else if(vars->type == ASN_OCTET_STR){
-					char *descr = (char *) malloc(1 + vars->val_len);
-					memcpy(descr, vars->val.string, vars->val_len);
-					descr[vars->val_len] = '\0';
-					printf("%s.\n", descr);
-					free(descr);
-					//netsnmp_oid2str(var2, 30, vars->val.objid);
+			else if(vars->type == ASN_IPADDRESS){
+				unsigned char *ipaddress = (unsigned char *) malloc(1 + vars->val_len);
+				memcpy(ipaddress, vars->val.string, vars->val_len);
+				int ip_array[vars->val_len], i;
+				for(i = 0; i < vars->val_len; i++){
+					ip_array[i] = ipaddress[i];
+					if(i < vars->val_len - 1)
+						printf("%d.",ip_array[i]);
+					else
+						printf("%d\n", ip_array[i]);
+				}
 			}
 						
 		}
+
+		printf("-----------------------\n");
 		
 	}else{
 		if(status == STAT_SUCCESS){
@@ -158,35 +162,63 @@ int main(int argc, char **argv){
 		snmp_free_pdu(response);
 	}
 
+	//beginning getting first ipRouteDest
 	pdu = snmp_pdu_create(SNMP_MSG_GETNEXT);
-	oid ipRouteDest[] = {1,3,6,1,2,1,4,21,1,1,0,0,0,0};
+	oid ipRouteDest[] = {1,3,6,1,2,1,4,21,1,1};
+	oid ipRouteIfIndex[] = {1,3,6,1,2,1,4,21,1,2};
 	size_t ipRouteDest_len = MAX_AGENT_LEN;
 
 	snmp_add_null_var(pdu, ipRouteDest, OID_LENGTH(ipRouteDest));
+	snmp_add_null_var(pdu, ipRouteIfIndex, OID_LENGTH(ipRouteIfIndex));
 
 	status = snmp_synch_response(ss, pdu, &response);
 
+	int entry_num = 0;
+	char buff[SPRINT_MAX_LEN];
+	size_t next_oid_len;
+	size_t ipRouteDest_oid_len = 21;
+
+	//sending getnext ipRouteDest
+	printf("IP Neighbors\n");
 	if(status == STAT_SUCCESS && response->errstat == SNMP_ERR_NOERROR){
-
 		char ipRouteDestStr[30];
-
 		vars = response->variables;
-		printf("datatype String? %d\n", (vars->type == ASN_IPADDRESS));
-		printf("length: %d\n", vars->val_len);
-		unsigned long obj = *(vars->val.objid);
-		printf("OID %d\n", obj);
-		unsigned char *ipaddress = (unsigned char *) malloc(1 + vars->val_len);
-		memcpy(ipaddress, vars->val.string, vars->val_len);
-		int ip_array[4];
-		int i;
-		printf("Address: ");
-		for(i = 0; i < 4; i++){
-			ip_array[i] = ipaddress[i];
-			printf("%d,",ip_array[i]);
+		if(vars->type == ASN_IPADDRESS){
+			entry_num++;
+			
+			netsnmp_ds_set_int(NETSNMP_DS_LIBRARY_ID,
+								NETSNMP_DS_LIB_OID_OUTPUT_FORMAT,
+								NETSNMP_OID_OUTPUT_NUMERIC);
+			snprint_objid(buff, sizeof(buff), vars->name, vars->name_length);
+			next_oid_len = vars->name_length;
+			unsigned char *ipaddress = (unsigned char *) malloc(1 + vars->val_len);
+			memcpy(ipaddress, vars->val.string, vars->val_len);
+			int ip_array[vars->val_len];
+			int i;
+			printf("Address: ");
+			for(i = 0; i < 4; i++){
+				if(ipaddress[i] < 10){
+					ipRouteDest_oid_len += 2;
+				}else if(ipaddress[i] < 100){
+					ipRouteDest_oid_len += 3;
+				}else if(ipaddress[i] < 1000){
+					ipRouteDest_oid_len += 4;
+				}else if(ipaddress[i] < 10000){
+					ipRouteDest_oid_len += 5;
+				}
+				ip_array[i] = ipaddress[i];
+				if(i < 3)
+						printf("%d.",ip_array[i]);
+					else
+						printf("%d ", ip_array[i]);
+			}
+			//printf("%d\n", ipRouteDest_oid_len);
+			free(ipaddress);
 		}
-		printf("\n");
-		//printf("Address: %d \n", ipaddress[0]);
-		free(ipaddress);
+		vars = vars->next_variable;
+		if(vars->type == ASN_INTEGER){
+			printf("is on interface %d\n", *(vars->val.integer));
+		}
 	}else if(status == STAT_SUCCESS){
 		fprintf(stderr, "Error in packet\nReason: %s\n",
 				snmp_errstring(response->errstat));
@@ -200,6 +232,135 @@ int main(int argc, char **argv){
 	if(response){
 		snmp_free_pdu(response);
 	}
+
+	int mib_bool = 0;
+	//getting rest of neighboring ips
+	do{
+		pdu = snmp_pdu_create(SNMP_MSG_GETNEXT);
+
+		char new_oid[ipRouteDest_oid_len];
+		memcpy(new_oid, buff, ipRouteDest_oid_len);
+		//printf("%s\n", new_oid);
+
+		oid next_oid[next_oid_len];
+
+		generate_oid(new_oid, next_oid);
+
+		snmp_add_null_var(pdu, next_oid, OID_LENGTH(next_oid));
+
+		status = snmp_synch_response(ss, pdu, &response);
+
+
+		if(status == STAT_SUCCESS && response->errstat == SNMP_ERR_NOERROR){
+
+
+			char ipRouteDestStr[100];
+			vars = response->variables;
+			if(vars->type == ASN_IPADDRESS){
+				mib_bool = 1;
+				entry_num++;
+			
+				netsnmp_ds_set_int(NETSNMP_DS_LIBRARY_ID,
+								NETSNMP_DS_LIB_OID_OUTPUT_FORMAT,
+								NETSNMP_OID_OUTPUT_NUMERIC);
+				snprint_objid(buff, sizeof(buff), vars->name, vars->name_length);
+				//printf("OID %s\n", buff);
+				unsigned char *ipaddress = (unsigned char *) malloc(1 + vars->val_len);
+				memcpy(ipaddress, vars->val.string, vars->val_len);
+				int ip_array[vars->val_len];
+				int i;
+				printf("Address: ");
+				ipRouteDest_oid_len = 21;
+				for(i = 0; i < 4; i++){
+					if(ipaddress[i] < 10){
+						ipRouteDest_oid_len += 2;
+					}else if(ipaddress[i] < 100){
+						ipRouteDest_oid_len += 3;
+					}else if(ipaddress[i] < 1000){
+						ipRouteDest_oid_len += 4;
+					}else if(ipaddress[i] < 10000){
+						ipRouteDest_oid_len += 5;
+					}
+					ip_array[i] = ipaddress[i];
+					if(i < 3)
+						printf("%d.",ip_array[i]);
+					else
+						printf("%d\n", ip_array[i]);
+				}
+				//printf("%d\n", ipRouteDest_oid_len);
+				//printf("Address: %d \n", ipaddress[0]);
+				free(ipaddress);
+			}else{
+				//printf("did not get right type\n");
+				netsnmp_ds_set_int(NETSNMP_DS_LIBRARY_ID,
+								NETSNMP_DS_LIB_OID_OUTPUT_FORMAT,
+								NETSNMP_OID_OUTPUT_NUMERIC);
+				snprint_objid(buff, sizeof(buff), vars->name, vars->name_length);
+				printf("OID %s\n", buff);
+				mib_bool = 0;
+			}
+		}else if(status == STAT_SUCCESS){
+			fprintf(stderr, "Error in packet\nReason: %s\n",
+					snmp_errstring(response->errstat));
+		}else if (status == STAT_TIMEOUT){
+			fprintf(stderr, "Timeout: No response from %s\n",
+					session.peername);
+		}else{
+			printf("did not go to mib\n");
+			snmp_sess_perror("assignment2", ss);
+		}		
+
+	}while (mib_bool == 1);
+
+	if(response){
+		snmp_free_pdu(response);
+	}
+
+	pdu = snmp_pdu_create(SNMP_MSG_GET);
+
+	oid inMib[] = {1,3,6,1,2,1,2,2,1,10,1};
+	oid outMIB[] = {1,3,6,1,2,1,2,2,1,16,1};
+
+	snmp_add_null_var(pdu, inMib, OID_LENGTH(inMib));
+	snmp_add_null_var(pdu, outMIB, OID_LENGTH(outMIB));
+
+	status = snmp_synch_response(ss, pdu, &response);	
+	long long stats[2];
+
+	if(status == STAT_SUCCESS && response->errstat == SNMP_ERR_NOERROR){
+		int get_num = 0;
+		
+		struct counter64 *stats = (struct counter64 *) malloc(sizeof(struct counter64));
+		for(vars = response->variables; vars; vars = vars->next_variable){
+			//printf("Type: %d\n", vars->type);
+			//memcpy(stats, vars->val.counter64, sizeof(struct counter64));
+			//printf("counter: %lu", stats->low);
+			if(vars->type == ASN_COUNTER){
+				memcpy(stats, vars->val.counter64, sizeof(struct counter64));
+				printf("counter: %lu", vars->val.counter64->high );
+			}else{
+				printf("did not get right type\n");
+				netsnmp_ds_set_int(NETSNMP_DS_LIBRARY_ID,
+								NETSNMP_DS_LIB_OID_OUTPUT_FORMAT,
+								NETSNMP_OID_OUTPUT_NUMERIC);
+				snprint_objid(buff, sizeof(buff), vars->name, vars->name_length);
+				printf("OID %s\n", buff);
+			}
+		}
+
+	}else if(status == STAT_SUCCESS){
+			fprintf(stderr, "Error in packet\nReason: %s\n",
+					snmp_errstring(response->errstat));
+	}else if (status == STAT_TIMEOUT){
+		fprintf(stderr, "Timeout: No response from %s\n",
+				session.peername);
+	}else{
+		printf("did not go to mib\n");
+		snmp_sess_perror("assignment2", ss);
+	}
+
+	//long long counter1 = (long long) stats[0]->high << 32 | stats[0]->low;
+	//printf("num %llu\n", counter1);
 
 	snmp_close(ss);
 }
@@ -224,4 +385,19 @@ void get_user_data(struct session_info *agent){
 	char *community = (char *) malloc(MAX_COMMUNITY_LEN);	
 	retrieve_agent_community(community);
 	agent->community = community;
+}
+
+void generate_oid(char *new_oid, oid *next_oid){
+	int string_index;
+	int oid_num = 0;
+	int oid_index = 0;
+	for(string_index = 1; string_index < sizeof(new_oid); string_index++){
+		if(new_oid[string_index] < ':' && new_oid[string_index] > '/'){
+			oid_num = (oid_num * 10) + (new_oid[string_index] - '0');
+		}else{
+			next_oid[oid_index] = oid_num;
+			oid_num = 0;
+			oid_index++;
+		}
+	}
 }
