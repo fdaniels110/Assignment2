@@ -1,3 +1,9 @@
+/*
+	C class to retrieve info from user and provide back to caller class. 
+
+	Frank Daniels
+*/
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -26,7 +32,7 @@ int retreive_agent_address(char *agent_addr){
 		}
 	 }while(validIP != 0 && tries < 4);
 
-	 if(tries == 4){
+	 if(tries == 4 ){
 	 	return 0;
 	 }
 	 return 1;
@@ -82,3 +88,35 @@ int retrieve_agent_community(char *community){
 
 	return 0;
 }
+
+int retrieve_poll_number(){
+
+	char polls[5];
+	char *end;
+	printf("Enter number of polls to do. \n");
+
+	if(scanf("%s", polls) > 0){
+		return strtol(polls, &end, 10);
+	}else{
+		return -1;
+	}
+}
+
+int retrieve_poll_rate(){
+	char polls[5];
+	char *end;
+	int tries = 4;
+	do{
+		printf("Enter polling rate (seconds/poll): \n");
+
+		if(scanf("%s", polls) > 0){
+			return strtol(polls, &end, 10);
+		}else{
+			printf("That is not an accepted input. Enter a valid string.\n");
+			tries--;
+		}
+	}while(tries != 0);
+
+	printf("Error with retrieving input.  Using default value 1 sec/poll.\n");
+	return 1;
+}	

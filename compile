@@ -1,2 +1,0 @@
-gcc -I. `net-snmp-config --cflags`   -c -o assignment2.o assignment2.c
-gcc -o assignment2 assignment2.o ipcheck.c `net-snmp-config --libs`

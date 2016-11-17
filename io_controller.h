@@ -7,4 +7,8 @@ int retreive_agent_port();
 
 int retrieve_agent_community(char *community);
 
+int retrieve_poll_number();
+
+int retrieve_poll_rate();
+
 #endif

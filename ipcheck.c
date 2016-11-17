@@ -1,10 +1,12 @@
-/*
+	/*
 	Program to validate IPv4 address strings
 	Input: char *ipaddresses
 		String containing possible IP address or hostname
 	Output: int
 		0 : not valid hostname nor valid IP address
 		1 : valid IP or hostname
+
+	Frank Daniels
 */
 #include <stdio.h>
 #include <stdlib.h>
